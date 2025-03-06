@@ -1,0 +1,79 @@
+version: '3'
+
+services:
+  reverse-proxy:
+    image: traefik:v2.11
+    command:
+      - --api.insecure=true
+      - --providers.docker
+      - --providers.docker.network=web
+      - --entrypoints.http.address=:80
+      - --entrypoints.mysql.address=:3306
+      - --providers.docker.exposedbydefault=true
+    ports:
+      - '80:80'
+      - '8080:8080'
+      - '3306:3306'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - web
+
+  db:
+    image: mysql:8
+    environment:
+      MYSQL_ROOT_PASSWORD: test_password
+      MYSQL_DATABASE: course_catalog
+      MYSQL_USER: test_user
+      MYSQL_PASSWORD: test_password
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./database/migrations:/docker-entrypoint-initdb.d
+    hostname: database.cc.localhost
+    labels:
+      - traefik.tcp.routers.mysql.entrypoints=mysql
+      - traefik.tcp.routers.mysql.rule=HostSNI(`*`)
+      - traefik.tcp.services.mysql.loadbalancer.server.port=3306
+    networks:
+      - web
+    # ports:
+    #   - "8001:3306"
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    image: php:8.3-apache
+    container_name: api
+    volumes:
+      - ./api/:/var/www/html/
+    stdin_open: true
+    tty: true
+    hostname: api.cc.localhost
+    labels:
+      - traefik.http.routers.api.rule=Host(`api.cc.localhost`)
+      - traefik.http.services.api.loadbalancer.server.port=80
+    networks:
+      - web
+
+  front:
+    build:
+      context: ./front_end
+      dockerfile: Dockerfile
+    image: php:8.3-apache
+    container_name: front
+    volumes:
+      - ./front_end/:/var/www/html/
+    stdin_open: true
+    tty: true
+    hostname: cc.localhost
+    labels:
+      - traefik.http.routers.front.rule=Host(`cc.localhost`)
+    networks:
+      - web
+
+networks:
+  web:
+    driver: bridge
+volumes:
+  mysql-data:
